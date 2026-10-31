@@ -16,7 +16,12 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      # HAPUS setup-android@v3 yang error, pakai SDK bawaan runner
+      - name: Setup Android SDK (preinstalled)
+        run: |
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          ls -la /usr/local/lib/android/sdk || echo "checking sdk"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -28,48 +33,28 @@ jobs:
           mkdir -p app/src/main/java/com/hkpool/app/util
           mkdir -p app/src/main/java/com/hkpool/app/analysis
           mkdir -p app/src/main/java/com/hkpool/app/ui
-          mkdir -p .github/workflows
 
           cat > settings.gradle <<'GRADLE'
-          pluginManagement {
-              repositories { google(); mavenCentral(); gradlePluginPortal() }
-          }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories { google(); mavenCentral() }
-          }
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
           include ':app'
           GRADLE
 
           cat > build.gradle <<'GRADLE'
-          plugins {
-              id 'com.android.application' version '8.2.2' apply false
-              id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
-          }
+          plugins { id 'com.android.application' version '8.2.2' apply false; id 'org.jetbrains.kotlin.android' version '1.9.22' apply false }
           GRADLE
 
           cat > app/build.gradle <<'GRADLE'
-          plugins {
-              id 'com.android.application'
-              id 'org.jetbrains.kotlin.android'
-              id 'kotlin-kapt'
-          }
+          plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android'; id 'kotlin-kapt' }
           android {
               namespace 'com.hkpool.app'
               compileSdk 34
-              defaultConfig {
-                  applicationId "com.hkpool.app"
-                  minSdk 24
-                  targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
-              }
+              defaultConfig { applicationId "com.hkpool.app"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
               buildTypes { release { minifyEnabled false } debug { minifyEnabled false } }
               compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
               kotlinOptions { jvmTarget = '1.8' }
               buildFeatures { compose true }
               composeOptions { kotlinCompilerExtensionVersion '1.5.8' }
-              packaging { resources { excludes += '/META-INF/{AL2.0,LGPL2.1}' } }
           }
           dependencies {
               implementation 'androidx.core:core-ktx:1.12.0'
@@ -87,7 +72,6 @@ jobs:
               implementation 'org.apache.poi:poi:5.2.5'
               implementation 'org.apache.poi:poi-ooxml:5.2.5'
               implementation 'androidx.documentfile:documentfile:1.0.1'
-              debugImplementation 'androidx.compose.ui:ui-tooling'
           }
           GRADLE
 
@@ -95,9 +79,7 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <application android:allowBackup="true" android:icon="@android:drawable/sym_def_app_icon" android:label="HK Pool 2026" android:theme="@android:style/Theme.Material.Light.NoActionBar">
-                  <activity android:name=".ui.MainActivity" android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
-                      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
-                  </activity>
+                  <activity android:name=".ui.MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
               </application>
           </manifest>
           XML
@@ -120,7 +102,6 @@ jobs:
               @Query("SELECT * FROM hk_results ORDER BY date DESC") suspend fun getAll(): List<ResultEntity>
               @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<ResultEntity>)
               @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(item: ResultEntity)
-              @Query("DELETE FROM hk_results") suspend fun clearAll()
           }
           KT
 
@@ -181,8 +162,7 @@ jobs:
                   val last30 = sorted.takeLast(30)
                   val freq90 = IntArray(10)
                   val freq30 = IntArray(10)
-                  val freqPos = Array(4){IntArray(10)}
-                  for(r in last90){ for((i,ch) in r.number.withIndex()){ val d=ch.digitToInt(); freq90[d]++; freqPos[i][d]++ } }
+                  for(r in last90){ for(ch in r.number) freq90[ch.digitToInt()]++ }
                   for(r in last30){ for(ch in r.number) freq30[ch.digitToInt()]++ }
                   val lastSeenGap = IntArray(10)
                   for(d in 0..9){ var gap=0; for(i in sorted.indices.reversed()){ if(sorted[i].number.contains(d.toString())) break; gap++ }; lastSeenGap[d]=gap }
@@ -190,7 +170,7 @@ jobs:
                   for(i in 0 until sorted.size-1){ val cur = sorted[i].number.map { it.digitToInt() }.toSet(); val nxt = sorted[i+1].number.map { it.digitToInt() }.toSet(); for(cd in cur) for(nd in nxt) coOcc[cd][nd]++ }
                   val ikutScore = IntArray(10)
                   for(ld in lastDigits) for(d in 0..9) ikutScore[d]+=coOcc[ld][d]
-                  val scores = (0..9).map { d-> val freqNorm = freq90[d] / max(1.0, last90.size*4.0); val gapScore = 1.0/(lastSeenGap[d]+1.0); val trend = if(freq90[d]==0) 0.0 else (freq30[d]/30.0)/(freq90[d]/90.0); val trendNorm = (trend.coerceIn(0.0,2.0)/2.0); val posVariance = freqPos.map { it[d] }.maxOrNull() ?:0; val posScore = posVariance / max(1.0, last90.size.toDouble()); val finalScore = 0.40*freqNorm + 0.30*gapScore + 0.20*trendNorm + 0.10*posScore; DigitScore(d, finalScore, freq90[d], lastSeenGap[d], trend) }.sortedByDescending { it.score }
+                  val scores = (0..9).map { d-> val freqNorm = freq90[d] / max(1.0, last90.size*4.0); val gapScore = 1.0/(lastSeenGap[d]+1.0); val trend = if(freq90[d]==0) 0.0 else (freq30[d]/30.0)/(freq90[d]/90.0); val trendNorm = (trend.coerceIn(0.0,2.0)/2.0); val finalScore = 0.40*freqNorm + 0.30*gapScore + 0.20*trendNorm; DigitScore(d, finalScore, freq90[d], lastSeenGap[d], trend) }.sortedByDescending { it.score }
                   val hidup = scores.take(maxDigits).map { it.digit }
                   val mati = scores.takeLast(maxDigits).map { it.digit }.filter { it !in hidup }
                   val ganjil = scores.filter { it.digit%2==1 }.take(maxDigits).map { it.digit }
@@ -200,11 +180,10 @@ jobs:
                   val keluar4D = mutableListOf<String>().apply { if(hidup.size>=4) add(hidup.take(4).joinToString("") { it.toString() }); for(a in hidup.take(6)) for(b in hidup.take(6)) for(c in hidup.take(6)) for(d in hidup.take(6)){ if(size>=20) break; if(setOf(a,b,c,d).size==1) continue; add("$a$b$c$d") } }.distinct().take(12)
                   val keluar3D = keluar4D.map { it.takeLast(3) }.distinct().take(12)
                   val keluar2D = keluar4D.map { it.takeLast(2) }.distinct().take(12)
-                  val expl = "Skor tunggal freq40%+gap30%+trend20%+pos10% dari ${last90.size} hari. Hidup=${hidup.joinToString("")}, Mati=${mati.joinToString("")} no-overlap."
-                  return PredictionResult(scores, hidup, mati, ganjil, genap, ikutRanked, main, keluar4D, keluar3D, keluar2D, expl)
+                  return PredictionResult(scores, hidup, mati, ganjil, genap, ikutRanked, main, keluar4D, keluar3D, keluar2D, "Hidup=${hidup.joinToString("")} Mati=${mati.joinToString("")} no-overlap")
               }
               fun generateBBFS(digits:List<Int>): List<String>{ val res = mutableSetOf<String>(); for(a in digits) for(b in digits) for(c in digits) for(d in digits){ if(setOf(a,b,c,d).size<2) continue; res.add("$a$b$c$d") }; return res.toList().take(200) }
-              fun generateTarung(groupA:List<Int>, groupB:List<Int>): List<String>{ val res = mutableListOf<String>(); for(a in groupA) for(b in groupB){ res.add("$a$b"); res.add("$b$a"); for(c in groupA) for(d in groupB) res.add("$a$c$b$d") }; return res.distinct().take(120) }
+              fun generateTarung(groupA:List<Int>, groupB:List<Int>): List<String>{ val res = mutableListOf<String>(); for(a in groupA) for(b in groupB){ res.add("$a$b"); res.add("$b$a") }; return res.distinct().take(120) }
           }
           KT
 
@@ -260,15 +239,13 @@ jobs:
               fun refresh(){ scope.launch { val all = db.resultDao().getAll(); results = all; prediction = PredictionEngine.calculate(all) } }
               LaunchedEffect(Unit){ refresh() }
               val excelLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()){ uri: Uri? ->
-                  if(uri!=null){ scope.launch { try{ val input = context.contentResolver.openInputStream(uri)!!; val imported = CalendarImporter.importFromExcel(input); db.resultDao().insertAll(imported); Toast.makeText(context, "Import ${imported.size} data", Toast.LENGTH_LONG).show(); refresh() }catch(e:Exception){ Toast.makeText(context, "Gagal: ${e.message}", Toast.LENGTH_LONG).show() } } }
+                  if(uri!=null){ scope.launch { try{ val input = context.contentResolver.openInputStream(uri)!!; val imported = CalendarImporter.importFromExcel(input); db.resultDao().insertAll(imported); Toast.makeText(context, "Import ${imported.size}", Toast.LENGTH_LONG).show(); refresh() }catch(e:Exception){ Toast.makeText(context, "Gagal: ${e.message}", Toast.LENGTH_LONG).show() } } }
               }
-              Scaffold(topBar = { Column(Modifier.padding(16.dp)){ Text("PENGELUARAN HK POOL 2026", style=MaterialTheme.typography.headlineSmall); Text("${results.size} data • ${results.firstOrNull()?.number ?: "-"}") } }, bottomBar = { NavigationBar{ NavigationBarItem(selected=tab==0, onClick={tab=0}, label={Text("Kalender")}, icon={Text("📅")}); NavigationBarItem(selected=tab==1, onClick={tab=1}, label={Text("Daftar")}, icon={Text("📋")}); NavigationBarItem(selected=tab==2, onClick={tab=2}, label={Text("Analisis")}, icon={Text("📊")}); NavigationBarItem(selected=tab==3, onClick={tab=3}, label={Text("Prediksi")}, icon={Text("🎯")}); NavigationBarItem(selected=tab==4, onClick={tab=4}, label={Text("Generator")}, icon={Text("🎲")}) } }){ pad -> Column(Modifier.padding(pad).padding(12.dp)){ Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){ Button(onClick={excelLauncher.launch("*/*")}){ Text("Import Excel/CSV") } }; Spacer(Modifier.height(8.dp)); when(tab){0->CalendarView(results);1->ListView(results);2->AnalysisView(prediction);3->PredictionView(prediction);4->GeneratorView(prediction)} } }
+              Scaffold(topBar = { Column(Modifier.padding(16.dp)){ Text("HK POOL 2026", style=MaterialTheme.typography.headlineSmall); Text("${results.size} data") } }, bottomBar = { NavigationBar{ NavigationBarItem(selected=tab==0, onClick={tab=0}, label={Text("Kalender")}, icon={Text("📅")}); NavigationBarItem(selected=tab==1, onClick={tab=1}, label={Text("Daftar")}, icon={Text("📋")}); NavigationBarItem(selected=tab==2, onClick={tab=2}, label={Text("Prediksi")}, icon={Text("🎯")}) } }){ pad -> Column(Modifier.padding(pad).padding(12.dp)){ Button(onClick={excelLauncher.launch("*/*")}){ Text("Import Excel") }; when(tab){0->CalendarView(results);1->ListView(results);2->PredictionView(prediction)} } }
           }
-          @Composable fun CalendarView(results:List<ResultEntity>){ val byDate = results.associateBy { it.date }; val start = LocalDate.of(2026,1,1); val end = LocalDate.of(2026,10,29); val days = listOf("Senin","Selasa","Rabu","Kamis","Jumat","Sabtu","Minggu"); Column{ Row{ days.forEach{ d-> Box(Modifier.weight(1f).padding(2.dp), contentAlignment=Alignment.Center){ Text(d, style=MaterialTheme.typography.labelSmall) } } }; LazyColumn{ var cur = start; val weeks = mutableListOf<List<LocalDate?>>(); var week = mutableListOf<LocalDate?>(); val firstCol = start.dayOfWeek.value-1; repeat(firstCol){ week.add(null) }; while(cur <= end){ week.add(cur); if(week.size==7){ weeks.add(week.toList()); week=mutableListOf() }; cur = cur.plusDays(1) }; if(week.isNotEmpty()){ while(week.size<7) week.add(null); weeks.add(week) }; items(weeks.size){ idx -> val w = weeks[idx]; Row(Modifier.fillMaxWidth()){ w.forEach{ date -> Box(Modifier.weight(1f).aspectRatio(1f).padding(2.dp).border(0.5.dp, Color.Gray).background(if(date!=null && byDate[date.toString()]!=null) Color(0xFFE3F2FD) else Color.White), contentAlignment=Alignment.Center){ if(date!=null){ val res = byDate[date.toString()]; Column(horizontalAlignment=Alignment.CenterHorizontally){ Text("${date.dayOfMonth}", style=MaterialTheme.typography.labelSmall); if(res!=null){ val isNorm = res.number.startsWith("0"); Text(res.number, style=MaterialTheme.typography.bodySmall, color=if(isNorm) Color.Red else Color.Black) } } } } } } } } } }
-          @Composable fun ListView(results:List<ResultEntity>){ LazyColumn{ items(results.take(300)){ r-> Card(Modifier.padding(2.dp)){ Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement=Arrangement.SpaceBetween){ Text(r.date); Text(r.number, style=MaterialTheme.typography.titleMedium) } } } } }
-          @Composable fun AnalysisView(pred:com.hkpool.app.analysis.PredictionResult){ Column{ Text("Skor Digit:"); pred.scores.forEach{ s-> Text("${s.digit}: ${"%.3f".format(s.score)} freq=${s.freq} gap=${s.gap}") } } }
-          @Composable fun PredictionView(pred:com.hkpool.app.analysis.PredictionResult){ LazyColumn{ item{ Card{ Column(Modifier.padding(12.dp)){ Text(pred.explanation); Text("Hidup: ${pred.hidup.joinToString("")}"); Text("Mati: ${pred.mati.joinToString("")} no-overlap"); Text("Ganjil: ${pred.ganjil.joinToString("")} Genap: ${pred.genap.joinToString("")}"); Text("Ikut: ${pred.ikut.joinToString("")} Main: ${pred.main.joinToString("")}"); Text("4D: ${pred.keluar4D.joinToString(", ")}"); Text("3D: ${pred.keluar3D.joinToString(", ")}"); Text("2D: ${pred.keluar2D.joinToString(", ")}") } } } } }
-          @Composable fun GeneratorView(p:com.hkpool.app.analysis.PredictionResult){ val bbfs = PredictionEngine.generateBBFS(p.hidup); val tarung = PredictionEngine.generateTarung(p.hidup.take(3), p.mati.take(3)); LazyColumn{ item{ Text("BBFS ${bbfs.size}: ${bbfs.take(20).joinToString(", ")}") }; item{ Text("Tarung ${tarung.size}: ${tarung.take(20).joinToString(", ")}") } } }
+          @Composable fun CalendarView(results:List<ResultEntity>){ val byDate = results.associateBy { it.date }; val start = LocalDate.of(2026,1,1); val end = LocalDate.of(2026,10,29); Column{ LazyColumn{ var cur = start; val weeks = mutableListOf<List<LocalDate?>>(); var week = mutableListOf<LocalDate?>(); val firstCol = start.dayOfWeek.value-1; repeat(firstCol){ week.add(null) }; while(cur <= end){ week.add(cur); if(week.size==7){ weeks.add(week.toList()); week=mutableListOf() }; cur = cur.plusDays(1) }; if(week.isNotEmpty()){ while(week.size<7) week.add(null); weeks.add(week) }; items(weeks.size){ idx -> val w = weeks[idx]; Row(Modifier.fillMaxWidth()){ w.forEach{ date -> Box(Modifier.weight(1f).aspectRatio(1f).padding(2.dp).border(0.5.dp, Color.Gray).background(if(date!=null && byDate[date.toString()]!=null) Color(0xFFE3F2FD) else Color.White), contentAlignment=Alignment.Center){ if(date!=null){ val res = byDate[date.toString()]; Column(horizontalAlignment=Alignment.CenterHorizontally){ Text("${date.dayOfMonth}", style=MaterialTheme.typography.labelSmall); if(res!=null) Text(res.number, style=MaterialTheme.typography.bodySmall, color=if(res.number.startsWith("0")) Color.Red else Color.Black) } } } } } } } } }
+          @Composable fun ListView(results:List<ResultEntity>){ LazyColumn{ items(results.take(300)){ r-> Card{ Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement=Arrangement.SpaceBetween){ Text(r.date); Text(r.number) } } } } }
+          @Composable fun PredictionView(pred:com.hkpool.app.analysis.PredictionResult){ LazyColumn{ item{ Card{ Column(Modifier.padding(12.dp)){ Text(pred.explanation); Text("Hidup: ${pred.hidup.joinToString("")}"); Text("Mati: ${pred.mati.joinToString("")}"); Text("Ikut: ${pred.ikut.joinToString("")} Main: ${pred.main.joinToString("")}"); Text("4D: ${pred.keluar4D.joinToString(", ")}") } } } } }
           KT
 
       - name: Build Debug APK
